@@ -1,29 +1,44 @@
 import os
 import requests
+import pandas as pd
 
 API_KEY = os.environ.get("API_FOOTBALL_KEY")
 
-url = "https://v3.football.api-sports.io/fixtures"
-
-headers = {
-    "x-apisports-key": API_KEY.strip()
-}
-
-params = {
-    "date": "2026-06-11",
-    "search": "Mexico"
-}
-
-r = requests.get(url, headers=headers, params=params)
-
-print(r.status_code)
-print(r.json())
+# World Cup competition ID in API-Football (FIFA World Cup)
+COMPETITION_ID = 7902
+SEASON = 2026  # adjust if needed
 
 
 # -------------------------
-# FETCH EVENTS
+# GET ALL FIXTURES (TOURNAMENT)
 # -------------------------
-def fetch_events():
+def get_fixtures():
+    url = "https://v3.football.api-sports.io/fixtures"
+
+    headers = {
+        "x-apisports-key": API_KEY.strip()
+    }
+
+    params = {
+        "league": COMPETITION_ID,
+        "season": SEASON
+    }
+
+    r = requests.get(url, headers=headers, params=params)
+
+    print("Fixtures status:", r.status_code)
+
+    if r.status_code != 200:
+        print(r.text)
+        return []
+
+    return r.json().get("response", [])
+
+
+# -------------------------
+# GET EVENTS FOR ONE MATCH
+# -------------------------
+def get_events(fixture_id):
     url = "https://v3.football.api-sports.io/fixtures/events"
 
     headers = {
@@ -31,38 +46,47 @@ def fetch_events():
     }
 
     params = {
-        "fixture": MATCH_ID
+        "fixture": fixture_id
     }
 
     r = requests.get(url, headers=headers, params=params)
 
-    print("Status:", r.status_code)
-
     if r.status_code != 200:
-        print(r.text)
-        return None
+        return []
 
-    return r.json()
+    return r.json().get("response", [])
 
 
 # -------------------------
-# BUILD CLEAN CSV DATA
+# BUILD DATASET
 # -------------------------
-def build_df(data):
+def build_dataset(fixtures):
     rows = []
 
-    if not data or "response" not in data:
-        return pd.DataFrame(columns=[
-            "player", "team", "event_type", "time"
-        ])
+    print(f"Total fixtures: {len(fixtures)}")
 
-    for item in data["response"]:
-        rows.append({
-            "player": item.get("player", {}).get("name"),
-            "team": item.get("team", {}).get("name"),
-            "event_type": item.get("type"),
-            "time": item.get("time", {}).get("elapsed")
-        })
+    # limit for safety (remove later if needed)
+    fixtures = fixtures[:10]
+
+    for f in fixtures:
+        fixture_id = f["fixture"]["id"]
+        home = f["teams"]["home"]["name"]
+        away = f["teams"]["away"]["name"]
+
+        print(f"Processing: {home} vs {away}")
+
+        events = get_events(fixture_id)
+
+        for e in events:
+            rows.append({
+                "fixture_id": fixture_id,
+                "home_team": home,
+                "away_team": away,
+                "player": e.get("player", {}).get("name"),
+                "team": e.get("team", {}).get("name"),
+                "event_type": e.get("type"),
+                "minute": e.get("time", {}).get("elapsed")
+            })
 
     return pd.DataFrame(rows)
 
@@ -73,7 +97,7 @@ def build_df(data):
 def save(df):
     os.makedirs("data", exist_ok=True)
 
-    path = "data/match_events.csv"
+    path = "data/worldcup_events.csv"
     df.to_csv(path, index=False)
 
     print("Saved:", path)
@@ -84,14 +108,18 @@ def save(df):
 # MAIN
 # -------------------------
 def main():
-    print("=== MATCH DATA EXPORT BOT ===")
+    print("=== WORLD CUP TOURNAMENT BOT START ===")
 
-    data = fetch_events()
+    fixtures = get_fixtures()
 
-    df = build_df(data)
+    if not fixtures:
+        print("No fixtures found")
+        return
+
+    df = build_dataset(fixtures)
 
     if df.empty:
-        print("No data returned — check API or fixture ID")
+        print("No event data collected")
         return
 
     save(df)
