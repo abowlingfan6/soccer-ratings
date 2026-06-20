@@ -4,17 +4,61 @@ import pandas as pd
 
 API_KEY = os.environ.get("API_FOOTBALL_KEY")
 
-# REAL World Cup fixture IDs (from validated schedule source)
-FIXTURES = [
-    66456904, 66456906, 66456916,
-    66456940, 66456918, 66456928,
-    66456930, 66456942, 66457070,
-    66456968
-]
+# Correct World Cup competition ID
+LEAGUE_ID = 7902
+SEASON = 2026
 
 
 # -------------------------
-# GET EVENTS
+# GET WORLD CUP FIXTURES
+# -------------------------
+def get_fixtures():
+    url = "https://v3.football.api-sports.io/fixtures"
+
+    headers = {
+        "x-apisports-key": API_KEY.strip()
+    }
+
+    params = {
+        "league": LEAGUE_ID,
+        "season": SEASON
+    }
+
+    r = requests.get(url, headers=headers, params=params)
+
+    print("Fixtures status:", r.status_code)
+
+    if r.status_code != 200:
+        print(r.text)
+        return []
+
+    return r.json().get("response", [])
+
+
+# -------------------------
+# GET TEAM STATS (RELIABLE LAYER)
+# -------------------------
+def get_team_stats(fixture_id):
+    url = "https://v3.football.api-sports.io/fixtures/statistics"
+
+    headers = {
+        "x-apisports-key": API_KEY.strip()
+    }
+
+    params = {
+        "fixture": fixture_id
+    }
+
+    r = requests.get(url, headers=headers, params=params)
+
+    if r.status_code != 200:
+        return []
+
+    return r.json().get("response", [])
+
+
+# -------------------------
+# OPTIONAL: GET EVENTS (NOT RELIABLE FOR ALL MATCHES)
 # -------------------------
 def get_events(fixture_id):
     url = "https://v3.football.api-sports.io/fixtures/events"
@@ -36,28 +80,64 @@ def get_events(fixture_id):
 
 
 # -------------------------
-# BUILD DATASET
+# BUILD DATASET (HYBRID)
 # -------------------------
-def build_dataset():
+def build_dataset(fixtures):
     rows = []
 
-    for fixture_id in FIXTURES:
+    print(f"Fixtures found: {len(fixtures)}")
 
-        print(f"Processing fixture {fixture_id}")
+    # safety limit for GitHub Actions
+    fixtures = fixtures[:10]
 
+    for f in fixtures:
+        fixture_id = f["fixture"]["id"]
+        home = f["teams"]["home"]["name"]
+        away = f["teams"]["away"]["name"]
+
+        print(f"Processing {home} vs {away}")
+
+        # -------------------------
+        # PRIMARY: TEAM STATS
+        # -------------------------
+        stats = get_team_stats(fixture_id)
+
+        for team_block in stats:
+            team = team_block["team"]["name"]
+
+            stat_map = {
+                s["type"]: s["value"]
+                for s in team_block.get("statistics", [])
+            }
+
+            rows.append({
+                "fixture_id": fixture_id,
+                "home_team": home,
+                "away_team": away,
+                "team": team,
+                "source": "team_stats",
+                "shots": stat_map.get("Total Shots", 0),
+                "shots_on_target": stat_map.get("Shots on Goal", 0),
+                "possession": stat_map.get("Ball Possession", "0%")
+            })
+
+        # -------------------------
+        # OPTIONAL: EVENTS (if available)
+        # -------------------------
         events = get_events(fixture_id)
 
         for e in events:
             player = e.get("player", {}).get("name")
-            team = e.get("team", {}).get("name")
-
             if not player:
                 continue
 
             rows.append({
                 "fixture_id": fixture_id,
+                "home_team": home,
+                "away_team": away,
+                "team": e.get("team", {}).get("name"),
                 "player": player,
-                "team": team,
+                "source": "event",
                 "event_type": e.get("type"),
                 "minute": e.get("time", {}).get("elapsed")
             })
@@ -66,28 +146,34 @@ def build_dataset():
 
 
 # -------------------------
-# SAVE
+# SAVE OUTPUT
 # -------------------------
 def save(df):
     os.makedirs("data", exist_ok=True)
 
-    path = "data/worldcup_events.csv"
+    path = "data/worldcup_dataset.csv"
     df.to_csv(path, index=False)
 
-    print(df.head())
     print("Saved:", path)
+    print(df.head())
 
 
 # -------------------------
 # MAIN
 # -------------------------
 def main():
-    print("=== WORLD CUP REAL PLAYER EVENT PIPELINE ===")
+    print("=== WORLD CUP HYBRID ANALYTICS BOT ===")
 
-    df = build_dataset()
+    fixtures = get_fixtures()
+
+    if not fixtures:
+        print("No fixtures found")
+        return
+
+    df = build_dataset(fixtures)
 
     if df.empty:
-        print("No data returned")
+        print("No data collected")
         return
 
     save(df)
@@ -97,3 +183,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
