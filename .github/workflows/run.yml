@@ -1,16 +1,38 @@
-  name: Run bot
-  env:
-    API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
-  run: python worldcup_bot.py
+name: Soccer Ratings Bot
 
-- name: Commit results
-  run: |
-    git config user.name "github-actions[bot]"
-    git config user.email "github-actions[bot]@users.noreply.github.com"
+on:
+  workflow_dispatch:
 
-    git add data/ || true
+jobs:
+  run:
+    runs-on: ubuntu-latest
 
-    git diff --cached --quiet && echo "No changes" && exit 0
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-    git commit -m "update match ratings"
-    git push
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install requests pandas
+
+      - name: Run bot
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+        run: python worldcup_bot.py
+
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add data/ || true
+
+          git diff --cached --quiet && echo "No changes" && exit 0
+
+          git commit -m "update match ratings"
+          git push
