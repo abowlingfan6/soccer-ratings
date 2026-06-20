@@ -1,41 +1,23 @@
 import pandas as pd
 import os
 
-
 # -------------------------
-# SAFE CSV LOADER
+# SAFE LOADER
 # -------------------------
-def safe_read(path):
-    if not os.path.exists(path):
-        print(f"Missing file: {path}")
+def load(path):
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
         return pd.DataFrame()
-
-    if os.path.getsize(path) == 0:
-        print(f"Empty file skipped: {path}")
-        return pd.DataFrame()
-
-    try:
-        return pd.read_csv(path)
-    except Exception as e:
-        print(f"Failed reading {path}: {e}")
-        return pd.DataFrame()
+    return pd.read_csv(path)
 
 
-# -------------------------
-# LOAD DATA SAFELY
-# -------------------------
-events = safe_read("data/match_events.csv")
-stats = safe_read("data/match_stats.csv")
-lineups = safe_read("data/match_lineups.csv")
+events = load("data/match_events.csv")
+lineups = load("data/match_lineups.csv")
+fbref = load("data/fbref_players.csv")
 
 
-# -------------------------
-# STOP IF NO DATA
-# -------------------------
 if events.empty:
-    print("No event data — stopping rating engine safely")
+    print("No event data — exiting safely")
     exit()
-
 
 # -------------------------
 # POSITION MAP
@@ -47,14 +29,14 @@ for _, r in lineups.iterrows():
         pos_map[r["player"]] = r["position"]
 
 
-def get_pos(player):
-    return pos_map.get(player, "MF")
+def get_pos(p):
+    return pos_map.get(p, "MF")
 
 
 # -------------------------
-# EVENT SCORE (YOUR SYSTEM STARTS HERE)
+# EVENT MODEL (BASE PERFORMANCE)
 # -------------------------
-def score_event(row):
+def event_score(row):
     t = str(row.get("type", "")).lower()
     d = str(row.get("detail", "")).lower()
 
@@ -63,8 +45,8 @@ def score_event(row):
     if t == "goal":
         score += 1.0 if "penalty" not in d else 0.75
 
-    if "subst" in t:
-        score += 0.1
+    if "assist" in t:
+        score += 0.7
 
     if "yellow" in d:
         score -= 0.3
@@ -75,68 +57,76 @@ def score_event(row):
     return score
 
 
-events["score"] = events.apply(score_event, axis=1)
+events["event_score"] = events.apply(event_score, axis=1)
+
+player_base = events.groupby("player")["event_score"].sum().reset_index()
 
 
 # -------------------------
-# PLAYER TOTALS
+# FBREF ENRICHMENT (IF AVAILABLE)
 # -------------------------
-player_scores = events.groupby("player")["score"].sum().reset_index()
+fbref_bonus = {}
+
+if not fbref.empty:
+    for _, r in fbref.iterrows():
+        player = str(r.get("Player", ""))
+
+        shots = r.get("Sh", 0) if "Sh" in r else 0
+        goals = r.get("Gls", 0) if "Gls" in r else 0
+        ast = r.get("Ast", 0) if "Ast" in r else 0
+
+        try:
+            fbref_bonus[player] = (
+                float(goals) * 1.0 +
+                float(ast) * 0.7 +
+                float(shots) * 0.1
+            )
+        except:
+            fbref_bonus[player] = 0
 
 
 # -------------------------
-# TEAM BONUS (ONLY IF STATS EXISTS)
+# RATING ENGINE (YOUR 6.0 SYSTEM)
 # -------------------------
-team_bonus = {}
+results = []
 
-if not stats.empty:
-    for _, r in stats.iterrows():
-        if "possession" in str(r.get("stat", "")).lower():
-            try:
-                v = float(str(r.get("value", "0")).replace("%", ""))
-                team_bonus[r.get("team")] = (v - 50) * 0.01
-            except:
-                pass
-
-
-# -------------------------
-# BUILD RATINGS
-# -------------------------
-rows = []
-
-for _, r in player_scores.iterrows():
+for _, r in player_base.iterrows():
 
     player = r["player"]
     base = 6.0
-    score = r["score"]
+
+    event = r["event_score"]
+    fb = fbref_bonus.get(player, 0)
 
     pos = get_pos(player)
 
-    team = events[events["player"] == player]["team"].iloc[0] if not events.empty else None
-    bonus = team_bonus.get(team, 0)
+    # POSITION WEIGHTING (YOUR MODEL)
+    if pos == "GK":
+        rating = base + event * 1.1 + fb * 0.5
 
-    if pos == "DF":
-        rating = base + score * 1.2 + bonus
-    elif pos == "FW":
-        rating = base + score * 1.5 + bonus
+    elif pos == "DF":
+        rating = base + event * 1.2 + fb * 0.8
+
     elif pos == "MF":
-        rating = base + score * 1.3 + bonus
-    elif pos == "GK":
-        rating = base + score * 1.1 + bonus
-    else:
-        rating = base + score + bonus
+        rating = base + event * 1.3 + fb * 1.0
 
-    rows.append({
+    elif pos == "FW":
+        rating = base + event * 1.5 + fb * 1.2
+
+    else:
+        rating = base + event + fb
+
+    results.append({
         "player": player,
         "position": pos,
         "rating": round(rating, 2)
     })
 
 
-out = pd.DataFrame(rows).sort_values("rating", ascending=False)
+out = pd.DataFrame(results).sort_values("rating", ascending=False)
 
 os.makedirs("data", exist_ok=True)
 out.to_csv("data/player_ratings.csv", index=False)
 
 print(out)
-print("\nSaved: data/player_ratings.csv")
+print("\nSaved player_ratings.csv")
