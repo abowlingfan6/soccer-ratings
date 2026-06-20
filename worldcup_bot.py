@@ -2,118 +2,99 @@ import requests
 import pandas as pd
 import os
 
-MATCH_ID = 15186710
-BASE_URL = f"https://api.sofascore.com/api/v1/event/{MATCH_ID}"
+API_KEY = os.environ.get("API_FOOTBALL_KEY")
+
+MATCH_ID = 15186710  # we will convert this later if needed
 
 
-# -----------------------------
-# SAFE FETCH (handles 403/empty)
-# -----------------------------
-def fetch(endpoint):
-    url = f"{BASE_URL}/{endpoint}"
+# -------------------------
+# FETCH FROM API-FOOTBALL
+# -------------------------
+def fetch_match_stats():
+    url = "https://v3.football.api-sports.io/fixtures/statistics"
 
     headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "application/json",
-        "Referer": "https://www.sofascore.com/"
+        "x-apisports-key": API_KEY
     }
 
-    try:
-        r = requests.get(url, headers=headers, timeout=10)
-        print(f"Fetching {url} -> Status {r.status_code}")
+    params = {
+        "fixture": MATCH_ID
+    }
 
-        if r.status_code != 200:
-            return {}
+    r = requests.get(url, headers=headers, params=params)
 
-        return r.json()
+    print("Status:", r.status_code)
 
-    except Exception as e:
-        print("Fetch error:", e)
+    if r.status_code != 200:
+        print(r.text)
         return {}
 
-
-# -----------------------------
-# GET INCIDENTS
-# -----------------------------
-def get_incidents():
-    data = fetch("incidents")
-    return data if isinstance(data, dict) else {}
+    return r.json()
 
 
-# -----------------------------
-# EXTRACT PLAYER EVENTS
-# -----------------------------
-def build_players(incidents):
-    players = {}
+# -------------------------
+# SIMPLE PLAYER MODEL (TEAM-LEVEL FIRST)
+# -------------------------
+def build_team_stats(data):
+    rows = []
 
-    if not incidents or "incidents" not in incidents:
-        print("No incidents found")
-        return pd.DataFrame(columns=["player", "goals", "cards"])
+    if "response" not in data:
+        return pd.DataFrame()
 
-    for inc in incidents.get("incidents", []):
-        name = inc.get("playerName")
-        event = inc.get("incidentType")
+    for team_block in data["response"]:
+        team_name = team_block["team"]["name"]
 
-        if not name:
-            continue
+        stats = {s["type"]: s["value"] for s in team_block["statistics"]}
 
-        if name not in players:
-            players[name] = {
-                "player": name,
-                "goals": 0,
-                "cards": 0
-            }
+        rows.append({
+            "team": team_name,
+            "shots_on_goal": stats.get("Shots on Goal", 0),
+            "shots_total": stats.get("Total Shots", 0),
+            "possession": stats.get("Ball Possession", "0%")
+        })
 
-        if event == "goal":
-            players[name]["goals"] += 1
-
-        if event in ["yellowcard", "redcard"]:
-            players[name]["cards"] += 1
-
-    return pd.DataFrame(players.values())
+    return pd.DataFrame(rows)
 
 
-# -----------------------------
-# SIMPLE RATING MODEL
-# -----------------------------
+# -------------------------
+# SIMPLE RATING (TEAM VERSION FIRST)
+# -------------------------
 def calculate_rating(row):
-    return (
-        6.0 +
-        (1.5 * row["goals"]) -
-        (0.5 * row["cards"])
-    )
+    shots = float(row["shots_on_goal"] or 0)
+    total = float(row["shots_total"] or 0)
+
+    return 6.0 + (0.2 * shots) + (0.05 * total)
 
 
-# -----------------------------
-# SAVE OUTPUT
-# -----------------------------
+# -------------------------
+# SAVE
+# -------------------------
 def save(df):
     os.makedirs("data", exist_ok=True)
     df.to_csv("data/match_ratings.csv", index=False)
 
 
-# -----------------------------
+# -------------------------
 # MAIN
-# -----------------------------
+# -------------------------
 def main():
-    print("=== SINGLE MATCH BOT STARTED ===")
+    print("STARTING API-FOOTBALL BOT")
 
-    incidents = get_incidents()
+    data = fetch_match_stats()
 
-    players = build_players(incidents)
+    df = build_team_stats(data)
 
-    print("Players extracted:")
-    print(players)
+    print(df)
 
-    if players.empty:
-        print("No data found — exiting safely")
+    if df.empty:
+        print("No data returned")
         return
 
-    players["rating"] = players.apply(calculate_rating, axis=1)
+    df["rating"] = df.apply(calculate_rating, axis=1)
 
-    save(players)
+    save(df)
 
-    print("DONE — CSV CREATED")
+    print("DONE")
 
 
 if __name__ == "__main__":
