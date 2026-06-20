@@ -1,73 +1,90 @@
+import os
 import requests
 import pandas as pd
-import os
 
 API_KEY = os.environ.get("API_FOOTBALL_KEY")
 
-MATCH_ID = 15186710  # we will convert this later if needed
+# Use a known fixture (you can change later)
+MATCH_ID = 15186710
 
 
 # -------------------------
-# FETCH FROM API-FOOTBALL
+# SAFE API CALL
 # -------------------------
-def fetch_match_stats():
+def fetch_match():
+    if not API_KEY:
+        raise ValueError("Missing API_FOOTBALL_KEY")
+
     url = "https://v3.football.api-sports.io/fixtures/statistics"
 
     headers = {
-        "x-apisports-key": API_KEY
+        "x-apisports-key": API_KEY.strip()
     }
 
     params = {
         "fixture": MATCH_ID
     }
 
-    r = requests.get(url, headers=headers, params=params)
+    try:
+        r = requests.get(url, headers=headers, params=params, timeout=15)
 
-    print("Status:", r.status_code)
+        print("Status:", r.status_code)
 
-    if r.status_code != 200:
-        print(r.text)
-        return {}
+        if r.status_code != 200:
+            print("Response:", r.text)
+            return None
 
-    return r.json()
+        return r.json()
+
+    except Exception as e:
+        print("Request failed:", e)
+        return None
 
 
 # -------------------------
-# SIMPLE PLAYER MODEL (TEAM-LEVEL FIRST)
+# PARSE TEAM STATS SAFELY
 # -------------------------
-def build_team_stats(data):
+def parse(data):
     rows = []
 
-    if "response" not in data:
-        return pd.DataFrame()
+    if not data or "response" not in data:
+        print("No valid data returned")
+        return pd.DataFrame(columns=["team", "shots_on_goal", "shots_total"])
 
     for team_block in data["response"]:
-        team_name = team_block["team"]["name"]
+        team = team_block["team"]["name"]
 
-        stats = {s["type"]: s["value"] for s in team_block["statistics"]}
+        stats = {}
+        for s in team_block.get("statistics", []):
+            stats[s["type"]] = s["value"]
 
         rows.append({
-            "team": team_name,
-            "shots_on_goal": stats.get("Shots on Goal", 0),
-            "shots_total": stats.get("Total Shots", 0),
-            "possession": stats.get("Ball Possession", "0%")
+            "team": team,
+            "shots_on_goal": stats.get("Shots on Goal", 0) or 0,
+            "shots_total": stats.get("Total Shots", 0) or 0
         })
 
     return pd.DataFrame(rows)
 
 
 # -------------------------
-# SIMPLE RATING (TEAM VERSION FIRST)
+# SIMPLE RATING MODEL
 # -------------------------
-def calculate_rating(row):
-    shots = float(row["shots_on_goal"] or 0)
-    total = float(row["shots_total"] or 0)
+def add_rating(df):
+    if df.empty:
+        return df
 
-    return 6.0 + (0.2 * shots) + (0.05 * total)
+    df["rating"] = (
+        6.0 +
+        (0.2 * df["shots_on_goal"].astype(float)) +
+        (0.05 * df["shots_total"].astype(float))
+    )
+
+    return df
 
 
 # -------------------------
-# SAVE
+# SAVE SAFELY
 # -------------------------
 def save(df):
     os.makedirs("data", exist_ok=True)
@@ -76,27 +93,27 @@ def save(df):
 
     df.to_csv(path, index=False)
 
-    print("Saved file at:", path)
-    print("File exists:", os.path.exists(path))
+    print("Saved:", path)
+    print("Exists:", os.path.exists(path))
 
 
 # -------------------------
 # MAIN
 # -------------------------
 def main():
-    print("STARTING API-FOOTBALL BOT")
+    print("=== SOCCER ANALYTICS BOT START ===")
 
-    data = fetch_match_stats()
+    data = fetch_match()
 
-    df = build_team_stats(data)
+    df = parse(data)
 
     print(df)
 
-    if df.empty:
-        print("No data returned")
-        return
+    df = add_rating(df)
 
-    df["rating"] = df.apply(calculate_rating, axis=1)
+    if df.empty:
+        print("Empty dataframe — skipping save")
+        return
 
     save(df)
 
