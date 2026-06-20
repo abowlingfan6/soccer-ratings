@@ -1,179 +1,88 @@
-import os
 import requests
 import pandas as pd
+import os
 
-API_KEY = os.environ.get("API_FOOTBALL_KEY")
-
-# Correct World Cup competition ID
-LEAGUE_ID = 7902
-SEASON = 2026
+MATCH_IDS = [
+    15186710  # Mexico vs South Africa (example)
+]
 
 
 # -------------------------
-# GET WORLD CUP FIXTURES
+# SOFASCORE EVENT FETCH
 # -------------------------
-def get_fixtures():
-    url = "https://v3.football.api-sports.io/fixtures"
+def get_events(match_id):
+    url = f"https://api.sofascore.com/api/v1/event/{match_id}/incidents"
 
     headers = {
-        "x-apisports-key": API_KEY.strip()
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json",
+        "Referer": "https://www.sofascore.com/"
     }
 
-    params = {
-        "league": LEAGUE_ID,
-        "season": SEASON
-    }
+    r = requests.get(url, headers=headers)
 
-    r = requests.get(url, headers=headers, params=params)
-
-    print("Fixtures status:", r.status_code)
-
-    if r.status_code != 200:
-        print(r.text)
-        return []
-
-    return r.json().get("response", [])
-
-
-# -------------------------
-# GET TEAM STATS (RELIABLE LAYER)
-# -------------------------
-def get_team_stats(fixture_id):
-    url = "https://v3.football.api-sports.io/fixtures/statistics"
-
-    headers = {
-        "x-apisports-key": API_KEY.strip()
-    }
-
-    params = {
-        "fixture": fixture_id
-    }
-
-    r = requests.get(url, headers=headers, params=params)
+    print(f"Match {match_id} -> Status {r.status_code}")
 
     if r.status_code != 200:
         return []
 
-    return r.json().get("response", [])
+    data = r.json()
+
+    return data.get("incidents", [])
 
 
 # -------------------------
-# OPTIONAL: GET EVENTS (NOT RELIABLE FOR ALL MATCHES)
+# BUILD DATASET
 # -------------------------
-def get_events(fixture_id):
-    url = "https://v3.football.api-sports.io/fixtures/events"
-
-    headers = {
-        "x-apisports-key": API_KEY.strip()
-    }
-
-    params = {
-        "fixture": fixture_id
-    }
-
-    r = requests.get(url, headers=headers, params=params)
-
-    if r.status_code != 200:
-        return []
-
-    return r.json().get("response", [])
-
-
-# -------------------------
-# BUILD DATASET (HYBRID)
-# -------------------------
-def build_dataset(fixtures):
+def build():
     rows = []
 
-    print(f"Fixtures found: {len(fixtures)}")
+    for match_id in MATCH_IDS:
+        incidents = get_events(match_id)
 
-    # safety limit for GitHub Actions
-    fixtures = fixtures[:10]
+        for i in incidents:
+            event_type = i.get("incidentType")
+            player = i.get("player", {}).get("name")
+            team = i.get("team", {}).get("name")
+            minute = i.get("time")
 
-    for f in fixtures:
-        fixture_id = f["fixture"]["id"]
-        home = f["teams"]["home"]["name"]
-        away = f["teams"]["away"]["name"]
-
-        print(f"Processing {home} vs {away}")
-
-        # -------------------------
-        # PRIMARY: TEAM STATS
-        # -------------------------
-        stats = get_team_stats(fixture_id)
-
-        for team_block in stats:
-            team = team_block["team"]["name"]
-
-            stat_map = {
-                s["type"]: s["value"]
-                for s in team_block.get("statistics", [])
-            }
-
-            rows.append({
-                "fixture_id": fixture_id,
-                "home_team": home,
-                "away_team": away,
-                "team": team,
-                "source": "team_stats",
-                "shots": stat_map.get("Total Shots", 0),
-                "shots_on_target": stat_map.get("Shots on Goal", 0),
-                "possession": stat_map.get("Ball Possession", "0%")
-            })
-
-        # -------------------------
-        # OPTIONAL: EVENTS (if available)
-        # -------------------------
-        events = get_events(fixture_id)
-
-        for e in events:
-            player = e.get("player", {}).get("name")
             if not player:
                 continue
 
             rows.append({
-                "fixture_id": fixture_id,
-                "home_team": home,
-                "away_team": away,
-                "team": e.get("team", {}).get("name"),
+                "match_id": match_id,
                 "player": player,
-                "source": "event",
-                "event_type": e.get("type"),
-                "minute": e.get("time", {}).get("elapsed")
+                "team": team,
+                "event_type": event_type,
+                "minute": minute
             })
 
     return pd.DataFrame(rows)
 
 
 # -------------------------
-# SAVE OUTPUT
+# SAVE CSV
 # -------------------------
 def save(df):
     os.makedirs("data", exist_ok=True)
 
-    path = "data/worldcup_dataset.csv"
+    path = "data/match_events.csv"
     df.to_csv(path, index=False)
 
-    print("Saved:", path)
     print(df.head())
+    print("Saved:", path)
 
 
 # -------------------------
 # MAIN
 # -------------------------
 def main():
-    print("=== WORLD CUP HYBRID ANALYTICS BOT ===")
+    print("=== SOFASCORE EVENT PIPELINE START ===")
 
-    fixtures = get_fixtures()
-
-    if not fixtures:
-        print("No fixtures found")
-        return
-
-    df = build_dataset(fixtures)
+    df = build()
 
     if df.empty:
-        print("No data collected")
+        print("No data returned")
         return
 
     save(df)
@@ -183,4 +92,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
