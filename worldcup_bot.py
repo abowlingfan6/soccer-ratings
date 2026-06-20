@@ -1,9 +1,23 @@
 import os
 import requests
-import pandas as pd
 
 API_KEY = os.environ.get("API_FOOTBALL_KEY")
-MATCH_ID = 15186710
+
+url = "https://v3.football.api-sports.io/fixtures"
+
+headers = {
+    "x-apisports-key": API_KEY.strip()
+}
+
+params = {
+    "date": "2026-06-11",
+    "search": "Mexico"
+}
+
+r = requests.get(url, headers=headers, params=params)
+
+print(r.status_code)
+print(r.json())
 
 
 # -------------------------
