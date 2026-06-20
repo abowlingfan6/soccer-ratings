@@ -4,40 +4,17 @@ import pandas as pd
 
 API_KEY = os.environ.get("API_FOOTBALL_KEY")
 
-# FIFA World Cup (API-Football)
-LEAGUE_ID = 1
-SEASON = 2026
+# REAL World Cup fixture IDs (from validated schedule source)
+FIXTURES = [
+    66456904, 66456906, 66456916,
+    66456940, 66456918, 66456928,
+    66456930, 66456942, 66457070,
+    66456968
+]
 
 
 # -------------------------
-# GET FIXTURES (REAL MATCHES)
-# -------------------------
-def get_fixtures():
-    url = "https://v3.football.api-sports.io/fixtures"
-
-    headers = {
-        "x-apisports-key": API_KEY.strip()
-    }
-
-    params = {
-        "league": LEAGUE_ID,
-        "season": SEASON
-    }
-
-    r = requests.get(url, headers=headers, params=params)
-
-    print("Fixtures status:", r.status_code)
-
-    if r.status_code != 200:
-        print(r.text)
-        return []
-
-    data = r.json()
-    return data.get("response", [])
-
-
-# -------------------------
-# GET MATCH EVENTS (PLAYERS)
+# GET EVENTS
 # -------------------------
 def get_events(fixture_id):
     url = "https://v3.football.api-sports.io/fixtures/events"
@@ -59,23 +36,14 @@ def get_events(fixture_id):
 
 
 # -------------------------
-# BUILD PLAYER EVENT DATASET
+# BUILD DATASET
 # -------------------------
-def build_dataset(fixtures):
+def build_dataset():
     rows = []
 
-    print(f"Total fixtures found: {len(fixtures)}")
+    for fixture_id in FIXTURES:
 
-    # limit for GitHub Actions safety
-    fixtures = fixtures[:10]
-
-    for f in fixtures:
-        fixture_id = f["fixture"]["id"]
-
-        home = f["teams"]["home"]["name"]
-        away = f["teams"]["away"]["name"]
-
-        print(f"Processing: {home} vs {away}")
+        print(f"Processing fixture {fixture_id}")
 
         events = get_events(fixture_id)
 
@@ -83,14 +51,11 @@ def build_dataset(fixtures):
             player = e.get("player", {}).get("name")
             team = e.get("team", {}).get("name")
 
-            # skip invalid rows
             if not player:
                 continue
 
             rows.append({
                 "fixture_id": fixture_id,
-                "home_team": home,
-                "away_team": away,
                 "player": player,
                 "team": team,
                 "event_type": e.get("type"),
@@ -101,7 +66,7 @@ def build_dataset(fixtures):
 
 
 # -------------------------
-# SAVE CSV
+# SAVE
 # -------------------------
 def save(df):
     os.makedirs("data", exist_ok=True)
@@ -109,26 +74,20 @@ def save(df):
     path = "data/worldcup_events.csv"
     df.to_csv(path, index=False)
 
-    print("Saved:", path)
     print(df.head())
+    print("Saved:", path)
 
 
 # -------------------------
 # MAIN
 # -------------------------
 def main():
-    print("=== WORLD CUP PLAYER EVENT BOT ===")
+    print("=== WORLD CUP REAL PLAYER EVENT PIPELINE ===")
 
-    fixtures = get_fixtures()
-
-    if not fixtures:
-        print("No fixtures returned — check league/season")
-        return
-
-    df = build_dataset(fixtures)
+    df = build_dataset()
 
     if df.empty:
-        print("No player event data found")
+        print("No data returned")
         return
 
     save(df)
