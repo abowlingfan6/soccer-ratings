@@ -1,47 +1,135 @@
 import os
+import requests
 import pandas as pd
 
-# World Cup match IDs from schedule source
-MATCHES = [
-    66456904, 66456906, 66456916, 66456940,
-    66456918, 66456928, 66456930
-]
+API_KEY = os.environ.get("API_FOOTBALL_KEY")
+
+# FIFA World Cup (API-Football)
+LEAGUE_ID = 1
+SEASON = 2026
 
 
-def get_mock_events(match_id):
-    """
-    Placeholder until we plug in a stats API per match.
-    This ensures pipeline works end-to-end FIRST.
-    """
+# -------------------------
+# GET FIXTURES (REAL MATCHES)
+# -------------------------
+def get_fixtures():
+    url = "https://v3.football.api-sports.io/fixtures"
 
-    # Simulated structure (replaced later with real API stats)
-    return [
-        {"fixture_id": match_id, "player": "Player A", "team": "Team X", "event_type": "goal", "minute": 34},
-        {"fixture_id": match_id, "player": "Player B", "team": "Team Y", "event_type": "yellowcard", "minute": 55},
-    ]
+    headers = {
+        "x-apisports-key": API_KEY.strip()
+    }
+
+    params = {
+        "league": LEAGUE_ID,
+        "season": SEASON
+    }
+
+    r = requests.get(url, headers=headers, params=params)
+
+    print("Fixtures status:", r.status_code)
+
+    if r.status_code != 200:
+        print(r.text)
+        return []
+
+    data = r.json()
+    return data.get("response", [])
 
 
-def build_dataset():
+# -------------------------
+# GET MATCH EVENTS (PLAYERS)
+# -------------------------
+def get_events(fixture_id):
+    url = "https://v3.football.api-sports.io/fixtures/events"
+
+    headers = {
+        "x-apisports-key": API_KEY.strip()
+    }
+
+    params = {
+        "fixture": fixture_id
+    }
+
+    r = requests.get(url, headers=headers, params=params)
+
+    if r.status_code != 200:
+        return []
+
+    return r.json().get("response", [])
+
+
+# -------------------------
+# BUILD PLAYER EVENT DATASET
+# -------------------------
+def build_dataset(fixtures):
     rows = []
 
-    for m in MATCHES:
-        events = get_mock_events(m)
-        rows.extend(events)
+    print(f"Total fixtures found: {len(fixtures)}")
+
+    # limit for GitHub Actions safety
+    fixtures = fixtures[:10]
+
+    for f in fixtures:
+        fixture_id = f["fixture"]["id"]
+
+        home = f["teams"]["home"]["name"]
+        away = f["teams"]["away"]["name"]
+
+        print(f"Processing: {home} vs {away}")
+
+        events = get_events(fixture_id)
+
+        for e in events:
+            player = e.get("player", {}).get("name")
+            team = e.get("team", {}).get("name")
+
+            # skip invalid rows
+            if not player:
+                continue
+
+            rows.append({
+                "fixture_id": fixture_id,
+                "home_team": home,
+                "away_team": away,
+                "player": player,
+                "team": team,
+                "event_type": e.get("type"),
+                "minute": e.get("time", {}).get("elapsed")
+            })
 
     return pd.DataFrame(rows)
 
 
+# -------------------------
+# SAVE CSV
+# -------------------------
 def save(df):
     os.makedirs("data", exist_ok=True)
-    df.to_csv("data/worldcup_events.csv", index=False)
+
+    path = "data/worldcup_events.csv"
+    df.to_csv(path, index=False)
+
+    print("Saved:", path)
     print(df.head())
-    print("Saved data/worldcup_events.csv")
 
 
+# -------------------------
+# MAIN
+# -------------------------
 def main():
-    print("=== WORLD CUP PIPELINE (STABLE VERSION) ===")
+    print("=== WORLD CUP PLAYER EVENT BOT ===")
 
-    df = build_dataset()
+    fixtures = get_fixtures()
+
+    if not fixtures:
+        print("No fixtures returned — check league/season")
+        return
+
+    df = build_dataset(fixtures)
+
+    if df.empty:
+        print("No player event data found")
+        return
 
     save(df)
 
