@@ -1,34 +1,35 @@
+import os
 import requests
 import pandas as pd
-import os
 
-MATCH_IDS = [
-    15186710  # Mexico vs South Africa (example)
-]
+API_KEY = os.environ.get("API_FOOTBALL_KEY")
+
+MATCH_ID = 1264426
 
 
 # -------------------------
-# SOFASCORE EVENT FETCH
+# GET MATCH EVENTS (API-SPORTS)
 # -------------------------
 def get_events(match_id):
-    url = f"https://api.sofascore.com/api/v1/event/{match_id}/incidents"
+    url = "https://v3.football.api-sports.io/fixtures/events"
 
     headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "application/json",
-        "Referer": "https://www.sofascore.com/"
+        "x-apisports-key": API_KEY.strip()
     }
 
-    r = requests.get(url, headers=headers)
+    params = {
+        "fixture": match_id
+    }
 
-    print(f"Match {match_id} -> Status {r.status_code}")
+    r = requests.get(url, headers=headers, params=params)
+
+    print("Status:", r.status_code)
 
     if r.status_code != 200:
+        print(r.text[:300])
         return []
 
-    data = r.json()
-
-    return data.get("incidents", [])
+    return r.json().get("response", [])
 
 
 # -------------------------
@@ -37,25 +38,26 @@ def get_events(match_id):
 def build():
     rows = []
 
-    for match_id in MATCH_IDS:
-        incidents = get_events(match_id)
+    events = get_events(MATCH_ID)
 
-        for i in incidents:
-            event_type = i.get("incidentType")
-            player = i.get("player", {}).get("name")
-            team = i.get("team", {}).get("name")
-            minute = i.get("time")
+    for e in events:
+        player = e.get("player", {}).get("name")
+        team = e.get("team", {}).get("name")
+        event_type = e.get("type")
+        detail = e.get("detail")
+        minute = e.get("time", {}).get("elapsed")
 
-            if not player:
-                continue
+        if not player:
+            continue
 
-            rows.append({
-                "match_id": match_id,
-                "player": player,
-                "team": team,
-                "event_type": event_type,
-                "minute": minute
-            })
+        rows.append({
+            "match_id": MATCH_ID,
+            "player": player,
+            "team": team,
+            "event_type": event_type,
+            "event_detail": detail,
+            "minute": minute
+        })
 
     return pd.DataFrame(rows)
 
@@ -77,16 +79,15 @@ def save(df):
 # MAIN
 # -------------------------
 def main():
-    print("=== SOFASCORE EVENT PIPELINE START ===")
+    print("=== API-FOOTBALL SINGLE MATCH PIPELINE ===")
 
     df = build()
 
     if df.empty:
-        print("No data returned")
+        print("No data returned — check API key or fixture availability")
         return
 
     save(df)
-
     print("DONE")
 
 
