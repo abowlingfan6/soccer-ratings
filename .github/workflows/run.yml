@@ -20,19 +20,19 @@ jobs:
         run: |
           pip install requests pandas
 
-      - name: Run bot
+      - name: Run bot (export match CSV)
         env:
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
         run: python worldcup_bot.py
 
-      - name: Commit results
+      - name: Commit CSV results
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           git add data/ || true
 
-          git diff --cached --quiet && echo "No changes" && exit 0
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
 
-          git commit -m "update match ratings"
+          git commit -m "update match event data"
           git push
