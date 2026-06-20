@@ -71,7 +71,13 @@ def calculate_rating(row):
 # -------------------------
 def save(df):
     os.makedirs("data", exist_ok=True)
-    df.to_csv("data/match_ratings.csv", index=False)
+
+    path = "data/match_ratings.csv"
+
+    df.to_csv(path, index=False)
+
+    print("Saved file at:", path)
+    print("File exists:", os.path.exists(path))
 
 
 # -------------------------
