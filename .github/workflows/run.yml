@@ -1,4 +1,4 @@
-- name: Run bot
+  name: Run bot
   env:
     API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
   run: python worldcup_bot.py
