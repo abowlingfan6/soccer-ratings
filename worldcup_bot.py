@@ -8,86 +8,90 @@ MATCH_ID = 1264426
 
 
 # -------------------------
-# GET MATCH EVENTS (API-SPORTS)
+# EVENTS
 # -------------------------
-def get_events(match_id):
+def get_events():
     url = "https://v3.football.api-sports.io/fixtures/events"
-
-    headers = {
-        "x-apisports-key": API_KEY.strip()
-    }
-
-    params = {
-        "fixture": match_id
-    }
-
-    r = requests.get(url, headers=headers, params=params)
-
-    print("Status:", r.status_code)
-
-    if r.status_code != 200:
-        print(r.text[:300])
-        return []
-
+    headers = {"x-apisports-key": API_KEY}
+    r = requests.get(url, headers=headers, params={"fixture": MATCH_ID})
     return r.json().get("response", [])
 
 
 # -------------------------
-# BUILD DATASET
+# STATS (THIS IS WHAT YOUR EQUATION NEEDS)
 # -------------------------
-def build():
-    rows = []
-
-    events = get_events(MATCH_ID)
-
-    for e in events:
-        player = e.get("player", {}).get("name")
-        team = e.get("team", {}).get("name")
-        event_type = e.get("type")
-        detail = e.get("detail")
-        minute = e.get("time", {}).get("elapsed")
-
-        if not player:
-            continue
-
-        rows.append({
-            "match_id": MATCH_ID,
-            "player": player,
-            "team": team,
-            "event_type": event_type,
-            "event_detail": detail,
-            "minute": minute
-        })
-
-    return pd.DataFrame(rows)
+def get_stats():
+    url = "https://v3.football.api-sports.io/fixtures/statistics"
+    headers = {"x-apisports-key": API_KEY}
+    r = requests.get(url, headers=headers, params={"fixture": MATCH_ID})
+    return r.json().get("response", [])
 
 
 # -------------------------
-# SAVE CSV
+# LINEUPS (POSITION DATA)
 # -------------------------
-def save(df):
+def get_lineups():
+    url = "https://v3.football.api-sports.io/fixtures/lineups"
+    headers = {"x-apisports-key": API_KEY}
+    r = requests.get(url, headers=headers, params={"fixture": MATCH_ID})
+    return r.json().get("response", [])
+
+
+# -------------------------
+# SAVE HELPERS
+# -------------------------
+def save(df, name):
     os.makedirs("data", exist_ok=True)
-
-    path = "data/match_events.csv"
+    path = f"data/{name}.csv"
     df.to_csv(path, index=False)
-
-    print(df.head())
     print("Saved:", path)
 
 
 # -------------------------
-# MAIN
+# MAIN BUILD
 # -------------------------
 def main():
-    print("=== API-FOOTBALL SINGLE MATCH PIPELINE ===")
+    print("=== FULL DATA EXPORT FOR RATING ENGINE ===")
 
-    df = build()
+    # EVENTS
+    events = []
+    for e in get_events():
+        events.append({
+            "match_id": MATCH_ID,
+            "player": e.get("player", {}).get("name"),
+            "team": e.get("team", {}).get("name"),
+            "type": e.get("type"),
+            "detail": e.get("detail"),
+            "minute": e.get("time", {}).get("elapsed")
+        })
+    save(pd.DataFrame(events), "match_events")
 
-    if df.empty:
-        print("No data returned — check API key or fixture availability")
-        return
+    # STATS
+    stats = []
+    for team in get_stats():
+        team_name = team["team"]["name"]
+        for s in team.get("statistics", []):
+            stats.append({
+                "match_id": MATCH_ID,
+                "team": team_name,
+                "stat": s["type"],
+                "value": s["value"]
+            })
+    save(pd.DataFrame(stats), "match_stats")
 
-    save(df)
+    # LINEUPS
+    lineup = []
+    for team in get_lineups():
+        team_name = team["team"]["name"]
+        for p in team.get("startXI", []):
+            lineup.append({
+                "match_id": MATCH_ID,
+                "team": team_name,
+                "player": p["player"]["name"],
+                "position": p["player"].get("pos")
+            })
+    save(pd.DataFrame(lineup), "match_lineups")
+
     print("DONE")
 
 
