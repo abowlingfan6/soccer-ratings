@@ -1,4 +1,4 @@
-match_id,player,team,event_type,event_detail,minute
+match_id,player,team,type,detail,minute
 1264426,Alex René Reyes,Llanera,Goal,Penalty,3
 1264426,Adri Carrión,Real Ávila,Goal,Normal Goal,12
 1264426,Adilson,Real Ávila,subst,Substitution 1,27
