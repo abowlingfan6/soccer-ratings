@@ -1,4 +1,4 @@
-name: Soccer Ratings Bot
+name: World Cup Pipeline
 
 on:
   workflow_dispatch:
@@ -8,31 +8,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
-        run: |
-          pip install requests pandas
+      - run: pip install requests pandas
 
-      - name: Run bot (export match CSV)
+      # STEP 1: DATA EXPORT
+      - run: python worldcup_bot.py
         env:
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
-        run: python worldcup_bot.py
 
-      - name: Commit CSV results
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add data/ || true
-
-          git diff --cached --quiet && echo "No changes to commit" && exit 0
-
-          git commit -m "update match event data"
-          git push
+      # STEP 2: RATING ENGINE
+      - run: python rating_engine.py
