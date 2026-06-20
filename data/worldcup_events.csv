@@ -1,0 +1,15 @@
+fixture_id,player,team,event_type,minute
+66456904,Player A,Team X,goal,34
+66456904,Player B,Team Y,yellowcard,55
+66456906,Player A,Team X,goal,34
+66456906,Player B,Team Y,yellowcard,55
+66456916,Player A,Team X,goal,34
+66456916,Player B,Team Y,yellowcard,55
+66456940,Player A,Team X,goal,34
+66456940,Player B,Team Y,yellowcard,55
+66456918,Player A,Team X,goal,34
+66456918,Player B,Team Y,yellowcard,55
+66456928,Player A,Team X,goal,34
+66456928,Player B,Team Y,yellowcard,55
+66456930,Player A,Team X,goal,34
+66456930,Player B,Team Y,yellowcard,55
